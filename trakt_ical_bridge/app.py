@@ -87,9 +87,19 @@ SCHEDULE_TEMPLATE = """
     .meta { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#94a3b8; font-size:.8rem; }
     a { color:#93c5fd; text-decoration:none; }
     .loading, .error { padding: 36px 0; color:#cbd5e1; }
+    body.compact { background: transparent; }
+    body.compact main { padding: 0; }
+    body.compact header { display: none; }
+    body.compact .grid { grid-template-columns: repeat(2, minmax(96px, 1fr)); gap: 10px; }
+    body.compact .body { padding: 8px; gap: 5px; }
+    body.compact .tag { font-size: .58rem; padding: 3px 6px; }
+    body.compact .title { font-size: .78rem; }
+    body.compact .episode { font-size: .68rem; min-height: 2em; }
+    body.compact .time { font-size: .68rem; }
+    body.compact .meta { display: none; }
   </style>
 </head>
-<body>
+<body class="{{ 'compact' if compact else '' }}">
   <main>
     <header>
       <div>
@@ -108,8 +118,10 @@ SCHEDULE_TEMPLATE = """
     fetch("/api/schedule")
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((items) => {
+        const compact = document.body.classList.contains("compact");
+        const visible = compact ? items.slice(0, 6) : items;
         count.textContent = `${items.length} upcoming`;
-        container.innerHTML = items.map((item) => {
+        container.innerHTML = visible.map((item) => {
           const tagClass = /Finale/i.test(item.tag) ? "finale" : (/Premiere|New Show/i.test(item.tag) ? "premiere" : "");
           const poster = item.poster ? `<img class="poster" src="${esc(item.poster)}" alt="">` : `<div class="empty-poster">TV</div>`;
           const rating = item.rating ? `Rating ${esc(item.rating)}` : "";
@@ -199,13 +211,15 @@ def create_app(settings: Settings | None = None) -> Flask:
             schedule = build_schedule_items(items, settings.timezone)
         except TraktError as exc:
             abort(502, str(exc))
-        return jsonify(schedule)
+        response = jsonify(schedule)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
 
     @app.get("/schedule")
     def schedule_page() -> str:
         if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
             abort(403)
-        return render_template_string(SCHEDULE_TEMPLATE)
+        return render_template_string(SCHEDULE_TEMPLATE, compact=request.args.get("compact") == "1")
 
     @app.get("/health")
     def health() -> dict[str, str | bool]:

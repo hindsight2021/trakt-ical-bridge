@@ -57,6 +57,8 @@ class TvMazeClient:
 
 def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
     tz = ZoneInfo(tz_name)
+    today = datetime.now(tz).date()
+    tomorrow = today + timedelta(days=1)
     tvmaze = TvMazeClient()
     schedule: list[dict] = []
     seen: set[str] = set()
@@ -82,6 +84,8 @@ def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
 
         aired = datetime.fromisoformat(first_aired.replace("Z", "+00:00")).astimezone(tz)
         available = aired + timedelta(hours=1)
+        if available.date() not in {today, tomorrow}:
+            continue
         tag = _tag_for(item, item.get("_source", "shows"))
         title = show.get("title") or "Unknown show"
         meta = tvmaze.lookup(title)
