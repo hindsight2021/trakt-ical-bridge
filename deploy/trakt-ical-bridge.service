@@ -1,0 +1,16 @@
+[Unit]
+Description=Trakt iCal Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/trakt-ical-bridge
+EnvironmentFile=/opt/trakt-ical-bridge/.env
+ExecStart=/opt/trakt-ical-bridge/.venv/bin/python -m trakt_ical_bridge.app
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
