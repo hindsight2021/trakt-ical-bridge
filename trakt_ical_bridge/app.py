@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 
-from flask import Flask, Response, abort, redirect, render_template_string, request, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template_string, request, url_for
 
 from .config import Settings, load_settings
 from .ics import build_calendar, http_date
+from .schedule import build_schedule_items
 from .trakt import CalendarCache, TraktClient, TraktError
 
 
@@ -43,6 +44,92 @@ SETUP_TEMPLATE = """
       <input readonly value="{{ calendar_url }}">
     </div>
   {% endif %}
+</body>
+</html>
+"""
+
+SCHEDULE_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trakt Show Schedule</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: "Hanken Grotesk", system-ui, sans-serif;
+      background: #0b111c;
+      color: #f8fafc;
+    }
+    main { padding: 20px; max-width: 1280px; margin: 0 auto; }
+    header { display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:18px; }
+    h1 { margin:0; font-size: clamp(1.5rem, 4vw, 2.35rem); font-weight: 800; letter-spacing: 0; }
+    .sub { opacity:.68; font-size:.95rem; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap:16px; }
+    .card {
+      overflow:hidden;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.045));
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 18px 42px rgba(0,0,0,.32);
+    }
+    .poster { width:100%; aspect-ratio:2/3; object-fit:cover; display:block; background:#151d2b; }
+    .empty-poster { aspect-ratio:2/3; display:grid; place-items:center; background:#151d2b; color:#64748b; font-size:3rem; }
+    .body { padding:12px; display:grid; gap:8px; }
+    .tag { width:max-content; max-width:100%; padding:4px 8px; border-radius:999px; background:#2563eb; font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+    .tag.finale { background:#be123c; }
+    .tag.premiere { background:#7c3aed; }
+    .title { font-size:1rem; line-height:1.15; font-weight:800; }
+    .episode { color:#cbd5e1; font-size:.86rem; line-height:1.25; min-height:2.15em; }
+    .time { font-size:.84rem; color:#fbbf24; font-weight:700; }
+    .meta { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#94a3b8; font-size:.8rem; }
+    a { color:#93c5fd; text-decoration:none; }
+    .loading, .error { padding: 36px 0; color:#cbd5e1; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Show Schedule</h1>
+        <div class="sub">Atlantic streaming availability, one hour after Trakt airtime.</div>
+      </div>
+      <div class="sub" id="count"></div>
+    </header>
+    <section id="schedule" class="grid"><div class="loading">Loading schedule...</div></section>
+  </main>
+  <script>
+    const container = document.getElementById("schedule");
+    const count = document.getElementById("count");
+    const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+    const ep = (item) => item.season && item.number ? `S${String(item.season).padStart(2,"0")}E${String(item.number).padStart(2,"0")}` : "";
+    fetch("/api/schedule")
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((items) => {
+        count.textContent = `${items.length} upcoming`;
+        container.innerHTML = items.map((item) => {
+          const tagClass = /Finale/i.test(item.tag) ? "finale" : (/Premiere|New Show/i.test(item.tag) ? "premiere" : "");
+          const poster = item.poster ? `<img class="poster" src="${esc(item.poster)}" alt="">` : `<div class="empty-poster">TV</div>`;
+          const rating = item.rating ? `Rating ${esc(item.rating)}` : "";
+          const link = item.imdb_url ? `<a href="${esc(item.imdb_url)}" target="_blank" rel="noreferrer">IMDb</a>` : `<a href="${esc(item.trakt_url)}" target="_blank" rel="noreferrer">Trakt</a>`;
+          return `<article class="card">
+            ${poster}
+            <div class="body">
+              <div class="tag ${tagClass}">${esc(item.tag)}</div>
+              <div class="title">${esc(item.show)}</div>
+              <div class="episode">${esc(ep(item))}${item.episode ? " - " + esc(item.episode) : ""}</div>
+              <div class="time">${esc(item.available_label)}</div>
+              <div class="meta"><span>${esc(item.network || rating)}</span><span>${rating ? esc(rating) + " | " : ""}${link}</span></div>
+            </div>
+          </article>`;
+        }).join("") || `<div class="loading">No upcoming shows found.</div>`;
+      })
+      .catch((err) => {
+        container.innerHTML = `<div class="error">Schedule unavailable: ${esc(err.message)}</div>`;
+      });
+  </script>
 </body>
 </html>
 """
@@ -102,6 +189,23 @@ def create_app(settings: Settings | None = None) -> Flask:
         response.headers["Cache-Control"] = f"public, max-age={settings.cache_seconds}"
         response.headers["Last-Modified"] = http_date()
         return response
+
+    @app.get("/api/schedule")
+    def schedule_api() -> Response:
+        if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
+            abort(403)
+        try:
+            items = trakt.calendar_items()
+            schedule = build_schedule_items(items, settings.timezone)
+        except TraktError as exc:
+            abort(502, str(exc))
+        return jsonify(schedule)
+
+    @app.get("/schedule")
+    def schedule_page() -> str:
+        if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
+            abort(403)
+        return render_template_string(SCHEDULE_TEMPLATE)
 
     @app.get("/health")
     def health() -> dict[str, str | bool]:

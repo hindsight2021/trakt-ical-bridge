@@ -27,6 +27,7 @@ class Settings:
     include_new_shows: bool
     include_finales: bool
     cache_seconds: int
+    public_schedule: bool
 
 
 def load_settings() -> Settings:
@@ -49,4 +50,5 @@ def load_settings() -> Settings:
         include_new_shows=_truthy(os.getenv("INCLUDE_NEW_SHOWS"), False),
         include_finales=_truthy(os.getenv("INCLUDE_FINALES"), True),
         cache_seconds=max(60, int(os.getenv("CACHE_SECONDS", "21600"))),
+        public_schedule=_truthy(os.getenv("PUBLIC_SCHEDULE"), False),
     )
