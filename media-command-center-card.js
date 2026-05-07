@@ -59,6 +59,31 @@
       this.attr(entity, 'poster_url') ||
       '';
   }
+  attrAny(entity, keys, fallback='') {
+    for (const key of keys) {
+      const value = this.attr(entity, key, '');
+      if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return fallback;
+  }
+  imdbLink(entity) {
+    const id = this.attrAny(entity, ['imdb_id', 'imdb', 'media_imdb_id'], '');
+    return /^tt\d+/i.test(String(id)) ? `https://www.imdb.com/title/${id}/` : '';
+  }
+  nowData(source) {
+    const sourceName = String(source).toLowerCase();
+    const stremioCurrent = this.st(this.config.stremio_current, '');
+    const preferStremio = sourceName === 'stremio' || stremioCurrent;
+    const entity = preferStremio ? this.config.stremio_current : (sourceName === 'kodi' ? this.config.kodi : this.config.player);
+    const title = this.st(this.config.active_title, this.st(this.config.stremio_title, this.st(entity, 'Nothing playing')));
+    const season = this.attr(entity, 'season', '');
+    const episode = this.attr(entity, 'episode', '');
+    const epTitle = this.attrAny(entity, ['episode_title', 'media_episode_title'], '');
+    const series = this.st(this.config.active_series, this.st(this.config.stremio_episode, season && episode ? `S${String(season).padStart(2,'0')}E${String(episode).padStart(2,'0')}${epTitle ? ' - ' + epTitle : ''}` : 'Ready'));
+    const rating = this.attrAny(entity, ['imdb_rating', 'rating', 'media_rating', 'score'], '');
+    const description = this.attrAny(entity, ['description', 'summary', 'overview', 'plot', 'media_summary'], '');
+    return { entity, title, series, rating, description, imdb: this.imdbLink(entity) };
+  }
   nowArt(source) {
     if (String(source).toLowerCase() === 'stremio') {
       return this.image(this.config.stremio_current) || this.image(this.config.player) || this.image(this.config.stremio_last);
@@ -99,7 +124,7 @@
   renderSchedule() {
     if (this.error) return `<div class="empty">Schedule unavailable<br><small>${this.esc(this.error)}</small></div>`;
     if (!this.schedule.length) return `<div class="empty">No shows today or tomorrow</div>`;
-    return this.schedule.slice(0, 6).map(item => {
+    return this.schedule.slice(0, 4).map(item => {
       const tag = item.tag || 'Episode';
       const cls = /finale/i.test(tag) ? 'finale' : (/premiere|new show/i.test(tag) ? 'premiere' : 'episode');
       const code = item.season && item.number ? `S${String(item.season).padStart(2,'0')}E${String(item.number).padStart(2,'0')}` : '';
@@ -109,7 +134,9 @@
           <span>${this.esc(tag)}</span>
           <b>${this.esc(item.show)}</b>
           <p>${this.esc(code)}${item.episode ? ' - ' + this.esc(item.episode) : ''}</p>
+          <p class="desc">${this.esc(item.description || '')}</p>
           <em>${this.esc(item.available_label || '')}</em>
+          ${item.rating ? `<i>IMDb ${this.esc(item.rating)}</i>` : ''}
         </div>
       </article>`;
     }).join('');
@@ -119,8 +146,9 @@
     if (!this.shadowRoot) return;
     const c = this.config;
     const source = this.st(c.active_source, 'none');
-    const title = this.st(c.active_title, this.st(c.stremio_title, this.st(c.stremio_current, 'Nothing playing')));
-    const series = this.st(c.active_series, this.st(c.stremio_episode, 'Ready'));
+    const now = this.nowData(source);
+    const title = now.title;
+    const series = now.series;
     const appId = this.attr(c.player, 'app_id', 'unknown');
     const tvState = this.st(c.player, 'unknown');
     const kodiState = this.st(c.kodi, 'unknown');
@@ -138,13 +166,14 @@
         .grid{height:100%;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(420px,.86fr);grid-template-rows:64px minmax(0,1fr) 100px 96px;grid-template-areas:"header header" "hero side" "search side" "metrics side";gap:14px;}
         header{grid-area:header;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:0}.brand span{display:block;color:#67e8f9;font-size:.72rem;font-weight:900;letter-spacing:.18em;text-transform:uppercase}.brand h1{margin:2px 0 0;color:#f8fbff;font-size:clamp(1.9rem,3.1vw,3.15rem);line-height:.92;letter-spacing:0;text-shadow:0 2px 18px rgba(0,0,0,.45)}.status{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.pill{border:1px solid rgba(255,255,255,.34);background:rgba(241,245,249,.20);border-radius:999px;padding:8px 12px;font-size:.78rem;font-weight:900;color:#fff}.pill.hot{background:#f97316;color:#fff}
         .hero{grid-area:hero;position:relative;overflow:hidden;border:1px solid rgba(203,213,225,.34);border-radius:22px;background:linear-gradient(135deg,rgba(57,92,123,.95),rgba(38,67,100,.88));display:grid;grid-template-columns:minmax(190px,.32fr) minmax(0,1fr);gap:16px;padding:16px;min-height:0}.poster{height:100%;min-height:0;border-radius:18px;background-image:${bg};background-size:cover;background-position:center;box-shadow:0 20px 44px rgba(0,0,0,.38);position:relative}.poster:after{content:'NOW PLAYING';position:absolute;left:12px;bottom:12px;padding:6px 9px;border-radius:999px;background:rgba(3,10,20,.72);color:#fff;font-size:.62rem;font-weight:950;letter-spacing:.12em}.now{display:flex;flex-direction:column;justify-content:space-between;min-width:0}.now h2{color:#fff;font-size:clamp(2.1rem,4.2vw,4.8rem);line-height:.92;margin:0;letter-spacing:0;text-shadow:0 2px 18px rgba(0,0,0,.28)}.now p{font-size:clamp(1rem,1.45vw,1.25rem);line-height:1.25;color:#f8fbff;margin:10px 0}.app{color:#bae6fd;text-transform:uppercase;font-weight:900;letter-spacing:.14em;font-size:.72rem}.transport{display:grid;grid-template-columns:repeat(6,56px);gap:9px;margin-top:12px}.btn{height:44px;border:1px solid rgba(255,255,255,.34);border-radius:15px;background:rgba(241,245,249,.18);color:#fff;font-size:.72rem;font-weight:950;line-height:1;display:flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden;cursor:pointer}.btn.primary{background:#f97316;border-color:#fed7aa}.launch{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}.launch button{height:42px;border:0;border-radius:14px;padding:0 14px;background:#2563eb;color:#fff;font-weight:900;cursor:pointer}.launch button:nth-child(2){background:#0284c7}.launch button:nth-child(3){background:#7c3aed}.launch button:nth-child(4){background:#64748b}
-        .side{grid-area:side;display:grid;grid-template-rows:minmax(0,1fr) 202px;gap:14px;min-height:0}.panel{border:1px solid rgba(203,213,225,.32);border-radius:22px;background:linear-gradient(135deg,rgba(58,90,120,.96),rgba(45,75,108,.94));backdrop-filter:blur(14px);padding:14px;min-height:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}.panel h3{margin:0 0 10px;color:#fff;font-size:1rem;letter-spacing:.02em}.schedule{display:grid;grid-template-columns:1fr 1fr;gap:10px;overflow:hidden}.show{min-width:0;display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px;padding:8px;border-radius:16px;background:rgba(241,245,249,.16);border:1px solid rgba(255,255,255,.20)}.show img,.poster-fallback{width:62px;aspect-ratio:2/3;object-fit:cover;border-radius:10px;background:#24425f;display:grid;place-items:center;color:#dbeafe;font-weight:900}.show-copy{min-width:0}.show span{display:inline-block;padding:2px 6px;border-radius:999px;background:#2563eb;color:#fff;font-size:.54rem;font-weight:950;text-transform:uppercase}.show.finale span{background:#be123c}.show.premiere span{background:#7c3aed}.show b{display:block;margin-top:5px;color:#fff;font-size:.78rem;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.show p{margin:3px 0;color:#e0f2fe;font-size:.62rem;line-height:1.15;height:1.4em;overflow:hidden}.show em{font-style:normal;color:#fde68a;font-size:.62rem;font-weight:900}.empty{padding:24px;text-align:center;color:#dbeafe;grid-column:1/3}.mini iframe{width:100%;height:100%;border:0;border-radius:16px;background:transparent}.mini{display:none}
+        .meta-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}.meta-chip{border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.16);border-radius:999px;padding:5px 8px;color:#fff;font-size:.72rem;font-weight:900}.synopsis{max-width:720px;color:#e0f2fe;font-size:.88rem;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .side{grid-area:side;display:grid;grid-template-rows:minmax(0,1fr) 202px;gap:14px;min-height:0}.panel{border:1px solid rgba(203,213,225,.32);border-radius:22px;background:linear-gradient(135deg,rgba(58,90,120,.96),rgba(45,75,108,.94));backdrop-filter:blur(14px);padding:14px;min-height:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}.panel h3{margin:0 0 10px;color:#fff;font-size:1rem;letter-spacing:.02em}.schedule{height:calc(100% - 30px);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:10px;overflow:hidden}.show{min-width:0;min-height:0;display:grid;grid-template-columns:58px minmax(0,1fr);gap:9px;padding:7px;border-radius:16px;background:rgba(241,245,249,.16);border:1px solid rgba(255,255,255,.20)}.show img,.poster-fallback{width:58px;height:100%;max-height:104px;object-fit:cover;border-radius:10px;background:#24425f;display:grid;place-items:center;color:#dbeafe;font-weight:900}.show-copy{min-width:0}.show span{display:inline-block;padding:2px 6px;border-radius:999px;background:#2563eb;color:#fff;font-size:.52rem;font-weight:950;text-transform:uppercase}.show.finale span{background:#be123c}.show.premiere span{background:#7c3aed}.show b{display:block;margin-top:4px;color:#fff;font-size:.76rem;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.show p{margin:2px 0;color:#e0f2fe;font-size:.60rem;line-height:1.12;height:1.28em;overflow:hidden}.show .desc{color:#dbeafe;opacity:.9}.show em{font-style:normal;color:#fde68a;font-size:.60rem;font-weight:900}.show i{display:block;color:#fff;font-style:normal;font-size:.58rem;font-weight:900}.empty{padding:24px;text-align:center;color:#dbeafe;grid-column:1/3}.mini iframe{width:100%;height:100%;border:0;border-radius:16px;background:transparent}.mini{display:none}
         .remote{display:grid;grid-template-columns:repeat(3,64px);grid-auto-rows:42px;gap:8px;justify-content:center;align-content:center}.remote .blank{visibility:hidden}.remote .btn{width:64px;height:42px;padding:0 2px;border-radius:13px;font-size:.58rem;letter-spacing:0}.search-panel{grid-area:search}.search{display:grid;grid-template-columns:minmax(160px,1fr) 174px 96px 96px 96px;gap:10px;align-items:center}.search input,.search select{height:38px;min-width:0;border:1px solid rgba(255,255,255,.32);border-radius:14px;background:rgba(248,250,252,.18);color:#fff;padding:0 12px;font-size:.95rem}.search button{height:38px;border:0;border-radius:14px;background:#f97316;color:#fff;font-weight:950;padding:0 14px}.metrics{grid-area:metrics;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;min-height:0}.metric{border:1px solid rgba(203,213,225,.30);border-radius:18px;background:rgba(241,245,249,.16);padding:12px;min-width:0}.metric span{display:block;color:#bae6fd;text-transform:uppercase;font-size:.68rem;font-weight:950;letter-spacing:.12em}.metric b{display:block;margin-top:8px;color:#fff;font-size:1.3rem;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         @media(max-width:1100px){.grid{grid-template-columns:1fr;grid-template-rows:64px 1fr 100px 96px;grid-template-areas:"header" "hero" "search" "metrics"}.side{display:none}.metrics{grid-template-columns:repeat(2,1fr)}.poster{display:none}.hero{grid-template-columns:1fr}.now h2{font-size:clamp(1.7rem,7vw,3.8rem)}}
       </style>
       <ha-card><div class="shell"><div class="wash"></div><div class="shade"></div><div class="grid">
         <header><div class="brand"><span>Media Central</span><h1>Theatre Command</h1></div><div class="status"><div class="pill hot">${this.esc(source).toUpperCase()}</div><div class="pill">TV ${this.esc(tvState)}</div><div class="pill">Kodi ${this.esc(kodiState)}</div></div></header>
-        <section class="hero"><div class="poster"></div><div class="now"><div><div class="app">${this.esc(appId)}</div><h2>${this.esc(title)}</h2><p>${this.esc(series)}</p></div><div><div class="transport"><button class="btn" data-cmd="MEDIA_REWIND">RW</button><button class="btn primary" data-service="play">PLAY</button><button class="btn" data-service="pause">PAUSE</button><button class="btn" data-service="stop">STOP</button><button class="btn" data-cmd="MEDIA_FAST_FORWARD">FF</button><button class="btn" data-cmd="BACK">BACK</button></div><div class="launch"><button data-action="stremio">Stremio</button><button data-action="kodi">Kodi</button><button data-action="movie">Movie Mode</button><button data-cmd="HOME">Home</button></div></div></div></section>
+        <section class="hero"><div class="poster"></div><div class="now"><div><div class="app">${this.esc(appId)}</div><h2>${this.esc(title)}</h2><p>${this.esc(series)}</p><div class="meta-row">${now.rating ? `<span class="meta-chip">IMDb ${this.esc(now.rating)}</span>` : ''}${now.imdb ? `<a class="meta-chip" href="${this.esc(now.imdb)}" target="_blank" rel="noreferrer">IMDb</a>` : ''}<span class="meta-chip">${this.esc(source).toUpperCase()}</span></div>${now.description ? `<div class="synopsis">${this.esc(now.description)}</div>` : ''}</div><div><div class="transport"><button class="btn" data-cmd="MEDIA_REWIND">RW</button><button class="btn primary" data-service="play">PLAY</button><button class="btn" data-service="pause">PAUSE</button><button class="btn" data-service="stop">STOP</button><button class="btn" data-cmd="MEDIA_FAST_FORWARD">FF</button><button class="btn" data-cmd="BACK">BACK</button></div><div class="launch"><button data-action="stremio">Stremio</button><button data-action="kodi">Kodi</button><button data-action="movie">Movie Mode</button><button data-cmd="HOME">Home</button></div></div></div></section>
         <aside class="side"><section class="panel"><h3>Today + Tomorrow</h3><div class="schedule">${this.renderSchedule()}</div></section><section class="panel"><h3>SHIELD Control</h3><div class="remote"><div class="blank"></div><button class="btn" data-cmd="DPAD_UP">UP</button><div class="blank"></div><button class="btn" data-cmd="DPAD_LEFT">LEFT</button><button class="btn primary" data-cmd="DPAD_CENTER">OK</button><button class="btn" data-cmd="DPAD_RIGHT">RIGHT</button><button class="btn" data-cmd="BACK">BACK</button><button class="btn" data-cmd="DPAD_DOWN">DOWN</button><button class="btn" data-cmd="HOME">HOME</button></div></section></aside>
         <section class="panel search-panel"><h3>Stremio Search</h3><div class="search"><input class="q" placeholder="Title" value="${this.esc(this.st(c.search_title,''))}"><select class="type">${this.renderTypeOptions()}</select><input class="season" type="number" min="0" value="${this.esc(this.st(c.search_season,'0'))}"><input class="episode" type="number" min="0" value="${this.esc(this.st(c.search_episode,'0'))}"><button data-action="search">Search</button></div></section>
         <section class="metrics"><div class="metric"><span>Receiver</span><b>${this.esc(receiverState)}</b></div><div class="metric"><span>TV Power</span><b>${this.esc(power)} W</b></div><div class="metric"><span>Mode</span><b>${this.esc(this.st(c.movie_mode,'off'))}</b></div><div class="metric"><span>Schedule</span><b>${this.schedule.length} shows</b></div></section>

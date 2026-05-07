@@ -9,6 +9,14 @@ import requests
 from .ics import _tag_for
 
 
+def _plain_text(value: str | None) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", "", value)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def _clean_title(title: str) -> str:
     title = re.sub(r"\s+-\s+S\d{2}E\d{2}.*$", "", title)
     title = re.sub(r"^(Season Premiere|Season Finale|New Show):\s+", "", title)
@@ -25,10 +33,12 @@ class TvMazeClient:
             return self._cache[key]
 
         result = {
+            "id": None,
             "poster": "",
             "rating": None,
             "imdb_url": "",
             "network": "",
+            "summary": "",
         }
         try:
             response = requests.get(
@@ -41,16 +51,42 @@ class TvMazeClient:
                 image = data.get("image") or {}
                 externals = data.get("externals") or {}
                 result = {
+                    "id": data.get("id"),
                     "poster": image.get("medium") or image.get("original") or "",
                     "rating": (data.get("rating") or {}).get("average"),
                     "imdb_url": f"https://www.imdb.com/title/{externals['imdb']}/"
                     if externals.get("imdb")
                     else "",
                     "network": ((data.get("network") or data.get("webChannel") or {}).get("name") or ""),
+                    "summary": _plain_text(data.get("summary")),
                 }
         except requests.RequestException:
             pass
 
+        self._cache[key] = result
+        return result
+
+    def episode_lookup(self, show_id: int | None, season: int | None, number: int | None) -> dict:
+        if not show_id or season is None or number is None:
+            return {"summary": "", "rating": None}
+        key = f"episode:{show_id}:{season}:{number}"
+        if key in self._cache:
+            return self._cache[key]
+        result = {"summary": "", "rating": None}
+        try:
+            response = requests.get(
+                f"https://api.tvmaze.com/shows/{show_id}/episodebynumber",
+                params={"season": season, "number": number},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                result = {
+                    "summary": _plain_text(data.get("summary")),
+                    "rating": (data.get("rating") or {}).get("average"),
+                }
+        except requests.RequestException:
+            pass
         self._cache[key] = result
         return result
 
@@ -89,6 +125,7 @@ def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
         tag = _tag_for(item, item.get("_source", "shows"))
         title = show.get("title") or "Unknown show"
         meta = tvmaze.lookup(title)
+        episode_meta = tvmaze.episode_lookup(meta.get("id"), episode.get("season"), episode.get("number"))
 
         schedule.append(
             {
@@ -101,9 +138,10 @@ def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
                 "available_time": available.isoformat(),
                 "available_label": _format_available(available),
                 "poster": meta["poster"],
-                "rating": meta["rating"],
+                "rating": episode_meta["rating"] or meta["rating"],
                 "imdb_url": meta["imdb_url"],
                 "network": meta["network"] or show.get("network") or "",
+                "description": episode_meta["summary"] or meta["summary"],
                 "trakt_url": _trakt_url(show),
             }
         )
