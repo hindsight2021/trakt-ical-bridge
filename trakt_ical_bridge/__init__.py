@@ -1,0 +1,1 @@
+"""Trakt iCal Bridge package."""
