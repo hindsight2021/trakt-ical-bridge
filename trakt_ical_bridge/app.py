@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template_string, request, url_for
@@ -159,6 +160,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     app = Flask(__name__)
     simkl = SimklClient(settings)
     cache = CalendarCache(settings.data_dir / "calendar.ics", settings.cache_seconds)
+    schedule_cache = CalendarCache(settings.data_dir / "schedule.json", settings.cache_seconds)
 
     @app.get("/")
     def index() -> Response:
@@ -225,8 +227,12 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
             abort(403)
         try:
-            items = simkl.calendar_items()
-            schedule = build_schedule_items(items, settings.timezone, settings.schedule_days)
+            if schedule_cache.fresh():
+                schedule = json.loads(schedule_cache.read())
+            else:
+                items = simkl.calendar_items()
+                schedule = build_schedule_items(items, settings.timezone, settings.schedule_days)
+                schedule_cache.write(json.dumps(schedule))
         except SimklError as exc:
             abort(502, str(exc))
         response = jsonify(schedule)
