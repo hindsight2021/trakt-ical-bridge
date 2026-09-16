@@ -9,6 +9,7 @@ from .config import Settings, load_settings
 from .ics import build_calendar, http_date
 from .schedule import build_schedule_items
 from .simkl import CalendarCache, SimklClient, SimklError
+from .nuvio import NuvioCatalog, NuvioLookupError, adb_launch_command
 
 
 SETUP_TEMPLATE = """
@@ -161,6 +162,14 @@ def create_app(settings: Settings | None = None) -> Flask:
     simkl = SimklClient(settings)
     cache = CalendarCache(settings.data_dir / "calendar.ics", settings.cache_seconds)
     schedule_cache = CalendarCache(settings.data_dir / "schedule.json", settings.cache_seconds)
+    nuvio = NuvioCatalog()
+
+    def cors_json(payload: object, status: int = 200) -> Response:
+        response = jsonify(payload)
+        response.status_code = status
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/")
     def index() -> Response:
@@ -244,6 +253,41 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
             abort(403)
         return render_template_string(SCHEDULE_TEMPLATE, compact=request.args.get("compact") == "1")
+
+    @app.get("/api/nuvio/search")
+    def nuvio_search() -> Response:
+        try:
+            return cors_json(nuvio.search(request.args.get("q", ""), request.args.get("type", "series")))
+        except NuvioLookupError as exc:
+            return cors_json({"error": str(exc)}, 502)
+
+    @app.get("/api/nuvio/details/<content_type>/<path:content_id>")
+    def nuvio_details(content_type: str, content_id: str) -> Response:
+        try:
+            return cors_json(nuvio.details(content_id, content_type))
+        except NuvioLookupError as exc:
+            return cors_json({"error": str(exc)}, 404)
+
+    @app.post("/api/nuvio/resolve")
+    def nuvio_resolve() -> Response:
+        body = request.get_json(silent=True) or {}
+        try:
+            season = int(body["season"]) if body.get("season") not in (None, "") else None
+            episode = int(body["episode"]) if body.get("episode") not in (None, "") else None
+            selection = nuvio.resolve(
+                str(body.get("title", "")), str(body.get("type", "series")), season, episode
+            )
+            return cors_json({
+                "content_id": selection.content_id,
+                "content_type": selection.content_type,
+                "title": selection.title,
+                "season": selection.season,
+                "episode": selection.episode,
+                "episode_title": selection.episode_title,
+                "command": adb_launch_command(selection, str(body.get("package", "com.nuvio.tv.plus"))),
+            })
+        except (NuvioLookupError, TypeError, ValueError) as exc:
+            return cors_json({"error": str(exc)}, 400)
 
     @app.get("/health")
     def health() -> dict[str, str | bool]:
