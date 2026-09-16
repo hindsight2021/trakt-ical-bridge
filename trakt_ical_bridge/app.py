@@ -7,7 +7,7 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template_str
 from .config import Settings, load_settings
 from .ics import build_calendar, http_date
 from .schedule import build_schedule_items
-from .trakt import CalendarCache, TraktClient, TraktError
+from .simkl import CalendarCache, SimklClient, SimklError
 
 
 SETUP_TEMPLATE = """
@@ -16,7 +16,7 @@ SETUP_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trakt iCal Bridge</title>
+  <title>Simkl iCal Bridge</title>
   <style>
     body { max-width: 760px; margin: 48px auto; padding: 0 18px; font: 16px/1.45 system-ui, sans-serif; color: #111827; }
     code, input { font: 14px ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -28,15 +28,13 @@ SETUP_TEMPLATE = """
   </style>
 </head>
 <body>
-  <h1>Trakt iCal Bridge</h1>
+  <h1>Simkl iCal Bridge</h1>
   <div class="box">
-    <p>Trakt app credentials: <span class="{{ 'ok' if configured else 'bad' }}">{{ 'configured' if configured else 'missing' }}</span></p>
-    <p>Trakt account authorization: <span class="{{ 'ok' if authorized else 'bad' }}">{{ 'authorized' if authorized else 'not authorized' }}</span></p>
-    <p>OAuth callback URL registered with Trakt:</p>
-    <input readonly value="{{ redirect_uri }}">
+    <p>Simkl app credentials: <span class="{{ 'ok' if configured else 'bad' }}">{{ 'configured' if configured else 'missing' }}</span></p>
+    <p>Simkl account authorization: <span class="{{ 'ok' if authorized else 'bad' }}">{{ 'authorized' if authorized else 'not authorized' }}</span></p>
   </div>
   {% if configured %}
-    <p><a class="button" href="{{ auth_url }}">Connect Trakt</a></p>
+    <p><a class="button" href="{{ url_for('pin_start') }}">Connect Simkl with PIN</a></p>
   {% endif %}
   {% if authorized %}
     <div class="box">
@@ -48,13 +46,22 @@ SETUP_TEMPLATE = """
 </html>
 """
 
+PIN_TEMPLATE = """
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect Simkl</title><style>body{max-width:680px;margin:48px auto;padding:0 18px;font:17px/1.5 system-ui;color:#111827}.pin{font:700 48px ui-monospace;letter-spacing:.18em}.button{display:inline-block;padding:11px 16px;border-radius:8px;background:#111827;color:white;text-decoration:none}.muted{color:#6b7280}</style></head>
+<body><h1>Connect Simkl</h1><p>Open the Simkl PIN page and enter:</p><div class="pin">{{ user_code }}</div>
+<p><a class="button" href="{{ verification_url }}" target="_blank" rel="noreferrer">Open Simkl PIN page</a></p>
+<p id="status" class="muted">Waiting for authorization...</p>
+<script>const status=document.getElementById('status');const poll=()=>fetch('{{ url_for("pin_status", user_code=user_code) }}').then(r=>r.json()).then(d=>{if(d.authorized){status.textContent='Connected. Returning to setup...';location.href='{{ url_for("setup") }}';return}status.textContent=d.message||'Waiting for authorization...';setTimeout(poll,{{ interval * 1000 }})}).catch(()=>setTimeout(poll,{{ interval * 1000 }}));setTimeout(poll,{{ interval * 1000 }});</script></body></html>
+"""
+
 SCHEDULE_TEMPLATE = """
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trakt Show Schedule</title>
+  <title>Simkl Show Schedule</title>
   <style>
     :root { color-scheme: dark; }
     body {
@@ -104,7 +111,7 @@ SCHEDULE_TEMPLATE = """
     <header>
       <div>
         <h1>Show Schedule</h1>
-        <div class="sub">Atlantic streaming availability, one hour after Trakt airtime.</div>
+        <div class="sub">Atlantic streaming availability, one hour after Simkl airtime.</div>
       </div>
       <div class="sub" id="count"></div>
     </header>
@@ -125,7 +132,7 @@ SCHEDULE_TEMPLATE = """
           const tagClass = /Finale/i.test(item.tag) ? "finale" : (/Premiere|New Show/i.test(item.tag) ? "premiere" : "");
           const poster = item.poster ? `<img class="poster" src="${esc(item.poster)}" alt="">` : `<div class="empty-poster">TV</div>`;
           const rating = item.rating ? `Rating ${esc(item.rating)}` : "";
-          const link = item.imdb_url ? `<a href="${esc(item.imdb_url)}" target="_blank" rel="noreferrer">IMDb</a>` : `<a href="${esc(item.trakt_url)}" target="_blank" rel="noreferrer">Trakt</a>`;
+          const link = item.imdb_url ? `<a href="${esc(item.imdb_url)}" target="_blank" rel="noreferrer">IMDb</a>` : `<a href="${esc(item.trakt_url)}" target="_blank" rel="noreferrer">Simkl</a>`;
           return `<article class="card">
             ${poster}
             <div class="body">
@@ -150,7 +157,7 @@ SCHEDULE_TEMPLATE = """
 def create_app(settings: Settings | None = None) -> Flask:
     settings = settings or load_settings()
     app = Flask(__name__)
-    trakt = TraktClient(settings)
+    simkl = SimklClient(settings)
     cache = CalendarCache(settings.data_dir / "calendar.ics", settings.cache_seconds)
 
     @app.get("/")
@@ -162,25 +169,36 @@ def create_app(settings: Settings | None = None) -> Flask:
         calendar_url = f"{settings.public_base_url}/calendar.ics?token={settings.calendar_token}"
         return render_template_string(
             SETUP_TEMPLATE,
-            configured=trakt.configured(),
-            authorized=trakt.authorized(),
-            redirect_uri=settings.trakt_redirect_uri,
-            auth_url=trakt.authorize_url() if trakt.configured() else "#",
+            configured=simkl.configured(),
+            authorized=simkl.authorized(),
             calendar_url=calendar_url,
         )
 
-    @app.get("/auth/callback")
-    def auth_callback() -> Response | str:
-        if not trakt.configured():
-            abort(500, "Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET first.")
-        code = request.args.get("code")
-        if not code:
-            abort(400, "Missing OAuth code.")
+    @app.get("/auth/pin")
+    def pin_start() -> str:
+        if not simkl.configured():
+            abort(500, "Set SIMKL_CLIENT_ID first.")
         try:
-            trakt.exchange_code(code)
-        except TraktError as exc:
+            pin = simkl.request_pin()
+        except SimklError as exc:
             abort(502, str(exc))
-        return redirect(url_for("setup"))
+        return render_template_string(
+            PIN_TEMPLATE,
+            user_code=pin["user_code"],
+            verification_url=pin.get("verification_url") or pin.get("verification_uri") or "https://simkl.com/pin",
+            interval=max(5, int(pin.get("interval", 5))),
+        )
+
+    @app.get("/auth/pin/<user_code>")
+    def pin_status(user_code: str) -> Response:
+        try:
+            result = simkl.poll_pin(user_code)
+        except SimklError as exc:
+            return jsonify({"authorized": False, "message": str(exc)}), 502
+        return jsonify({
+            "authorized": bool(result.get("access_token")),
+            "message": result.get("message", "Connected" if result.get("access_token") else "Waiting for authorization..."),
+        })
 
     @app.get("/calendar.ics")
     def calendar() -> Response:
@@ -190,14 +208,14 @@ def create_app(settings: Settings | None = None) -> Flask:
             if cache.fresh():
                 content = cache.read()
             else:
-                items = trakt.calendar_items()
-                content = build_calendar(items, "Trakt Shows", settings.timezone)
+                items = simkl.calendar_items()
+                content = build_calendar(items, "Simkl Shows", settings.timezone)
                 cache.write(content)
-        except TraktError as exc:
+        except SimklError as exc:
             abort(502, str(exc))
 
         response = Response(content, mimetype="text/calendar; charset=utf-8")
-        response.headers["Content-Disposition"] = 'inline; filename="trakt-shows.ics"'
+        response.headers["Content-Disposition"] = 'inline; filename="simkl-shows.ics"'
         response.headers["Cache-Control"] = f"public, max-age={settings.cache_seconds}"
         response.headers["Last-Modified"] = http_date()
         return response
@@ -207,9 +225,9 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not settings.public_schedule and request.args.get("token") != settings.calendar_token:
             abort(403)
         try:
-            items = trakt.calendar_items()
-            schedule = build_schedule_items(items, settings.timezone)
-        except TraktError as exc:
+            items = simkl.calendar_items()
+            schedule = build_schedule_items(items, settings.timezone, settings.schedule_days)
+        except SimklError as exc:
             abort(502, str(exc))
         response = jsonify(schedule)
         response.headers["Access-Control-Allow-Origin"] = "*"
@@ -223,7 +241,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     @app.get("/health")
     def health() -> dict[str, str | bool]:
-        return {"ok": True, "configured": trakt.configured(), "authorized": trakt.authorized()}
+        return {"ok": True, "provider": "simkl", "configured": simkl.configured(), "authorized": simkl.authorized()}
 
     return app
 

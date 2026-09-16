@@ -91,10 +91,10 @@ class TvMazeClient:
         return result
 
 
-def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
+def build_schedule_items(items: list[dict], tz_name: str, days_ahead: int = 14) -> list[dict]:
     tz = ZoneInfo(tz_name)
     today = datetime.now(tz).date()
-    tomorrow = today + timedelta(days=1)
+    last_day = today + timedelta(days=max(1, days_ahead) - 1)
     tvmaze = TvMazeClient()
     schedule: list[dict] = []
     seen: set[str] = set()
@@ -120,7 +120,7 @@ def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
 
         aired = datetime.fromisoformat(first_aired.replace("Z", "+00:00")).astimezone(tz)
         available = aired + timedelta(hours=1)
-        if available.date() not in {today, tomorrow}:
+        if not today <= available.date() <= last_day:
             continue
         tag = _tag_for(item, item.get("_source", "shows"))
         title = show.get("title") or "Unknown show"
@@ -142,7 +142,7 @@ def build_schedule_items(items: list[dict], tz_name: str) -> list[dict]:
                 "imdb_url": meta["imdb_url"],
                 "network": meta["network"] or show.get("network") or "",
                 "description": episode_meta["summary"] or meta["summary"],
-                "trakt_url": _trakt_url(show),
+                "trakt_url": item.get("_provider_url") or _trakt_url(show),
             }
         )
     return schedule

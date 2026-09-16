@@ -14,9 +14,8 @@ def _truthy(value: str | None, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    trakt_client_id: str
-    trakt_client_secret: str
-    trakt_redirect_uri: str
+    simkl_client_id: str
+    simkl_client_secret: str
     public_base_url: str
     calendar_token: str
     data_dir: Path
@@ -28,18 +27,17 @@ class Settings:
     include_finales: bool
     cache_seconds: int
     public_schedule: bool
+    schedule_days: int
 
 
 def load_settings() -> Settings:
     port = os.getenv("PORT", "8765")
     public_base_url = os.getenv("PUBLIC_BASE_URL", f"http://localhost:{port}").rstrip("/")
-    redirect_uri = os.getenv("TRAKT_REDIRECT_URI", f"{public_base_url}/auth/callback")
     data_dir = Path(os.getenv("DATA_DIR", "data"))
 
     return Settings(
-        trakt_client_id=os.getenv("TRAKT_CLIENT_ID", "").strip(),
-        trakt_client_secret=os.getenv("TRAKT_CLIENT_SECRET", "").strip(),
-        trakt_redirect_uri=redirect_uri.strip(),
+        simkl_client_id=os.getenv("SIMKL_CLIENT_ID", "").strip(),
+        simkl_client_secret=os.getenv("SIMKL_CLIENT_SECRET", "").strip(),
         public_base_url=public_base_url,
         calendar_token=os.getenv("CALENDAR_TOKEN", secrets.token_urlsafe(32)),
         data_dir=data_dir,
@@ -51,4 +49,5 @@ def load_settings() -> Settings:
         include_finales=_truthy(os.getenv("INCLUDE_FINALES"), True),
         cache_seconds=max(60, int(os.getenv("CACHE_SECONDS", "21600"))),
         public_schedule=_truthy(os.getenv("PUBLIC_SCHEDULE"), False),
+        schedule_days=max(1, int(os.getenv("SCHEDULE_DAYS", "14"))),
     )

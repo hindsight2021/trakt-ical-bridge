@@ -100,7 +100,7 @@ def build_calendar(items: list[dict], calendar_name: str, tz_name: str) -> str:
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//Trakt iCal Bridge//EN",
+        "PRODID:-//Simkl iCal Bridge//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         f"X-WR-CALNAME:{_escape(calendar_name)}",
@@ -127,7 +127,7 @@ def build_calendar(items: list[dict], calendar_name: str, tz_name: str) -> str:
         show = item.get("show") or {}
         ids = episode.get("ids") or {}
         uid_source = f"{ids.get('trakt') or ids.get('tvdb') or first_aired}-{show.get('title')}"
-        uid = f"{sha1(uid_source.encode('utf-8')).hexdigest()}@trakt-ical-bridge"
+        uid = f"{sha1(uid_source.encode('utf-8')).hexdigest()}@simkl-ical-bridge"
         if uid in seen:
             continue
         seen.add(uid)
@@ -141,7 +141,7 @@ def build_calendar(items: list[dict], calendar_name: str, tz_name: str) -> str:
             f"DTEND:{end.strftime('%Y%m%dT%H%M%S')}",
             f"SUMMARY:{_escape(_event_title(item, tag))}",
             f"DESCRIPTION:{_escape(_description(item, tag))}",
-            f"URL:{_escape(_url(item))}",
+            f"URL:{_escape(item.get('_provider_url') or _url(item))}",
             "END:VEVENT",
         ]
         for line in event_lines:

@@ -1,7 +1,7 @@
 [project]
 name = "trakt-ical-bridge"
 version = "0.1.0"
-description = "Self-hosted Trakt upcoming shows to iCalendar feed bridge."
+description = "Self-hosted Simkl upcoming shows to iCalendar feed bridge."
 requires-python = ">=3.11"
 dependencies = [
   "Flask==3.0.3",

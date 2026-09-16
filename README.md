@@ -1,15 +1,15 @@
-# Trakt iCal Bridge
+# Simkl iCal Bridge
 
-A tiny self-hosted bridge that turns your Trakt upcoming show calendar into a private iCalendar feed.
+A tiny self-hosted bridge that turns your Simkl library and upcoming calendar into a private iCalendar feed.
 
-It connects to Trakt with OAuth, reads your personal upcoming shows calendar, labels premieres/finales when available, and serves a private `.ics` URL for Home Assistant and iOS.
+It connects to Simkl with PIN authentication, matches the rolling Simkl calendar against your library, and serves a private `.ics` URL for Home Assistant and iOS.
 
-## OAuth Callback
+## Simkl PIN Authentication
 
-Use the bridge callback URL in your Trakt API app, not Home Assistant's own OAuth callback:
+Open the bridge setup page, choose **Connect Simkl with PIN**, then enter the displayed code at:
 
 ```text
-http://homeassistant.local:8765/auth/callback
+https://simkl.com/pin
 ```
 
 ## Install On Raspberry Pi
@@ -29,15 +29,14 @@ cp .env.example .env
 nano .env
 ```
 
-Set your Trakt `Client ID`, `Client Secret`, and a long random `CALENDAR_TOKEN` in `.env`.
+Set your Simkl `Client ID`, `Client Secret`, and a long random `CALENDAR_TOKEN` in `.env`.
 
 Example `.env`:
 
 ```bash
-TRAKT_CLIENT_ID=your_trakt_client_id
-TRAKT_CLIENT_SECRET=your_trakt_client_secret
+SIMKL_CLIENT_ID=your_simkl_client_id
+SIMKL_CLIENT_SECRET=your_simkl_client_secret
 PUBLIC_BASE_URL=http://homeassistant.local:8765
-TRAKT_REDIRECT_URI=http://homeassistant.local:8765/auth/callback
 CALENDAR_TOKEN=replace-with-a-long-random-string
 TIMEZONE=America/Moncton
 DAYS_AHEAD=90
@@ -47,6 +46,7 @@ INCLUDE_FINALES=true
 INCLUDE_NEW_SHOWS=false
 CACHE_SECONDS=21600
 PUBLIC_SCHEDULE=false
+SCHEDULE_DAYS=14
 PORT=8765
 HOST=0.0.0.0
 ```
@@ -93,7 +93,7 @@ Paste:
 
 ```ini
 [Unit]
-Description=Trakt iCal Bridge
+Description=Simkl iCal Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -138,7 +138,7 @@ Home Assistant has a built-in Remote Calendar integration.
 http://homeassistant.local:8765/calendar.ics?token=YOUR_TOKEN
 ```
 
-4. Name it `Trakt Shows`.
+4. Name it `Simkl Shows`.
 
 If your Home Assistant version does not show Remote Calendar, update Home Assistant or use the HACS `ICS Calendar` integration.
 
@@ -173,12 +173,12 @@ http://homeassistant.local:8765/api/schedule?token=YOUR_TOKEN
 
 Set `PUBLIC_SCHEDULE=true` only if you want the local LAN schedule page/API to work without a token, for example inside a Home Assistant dashboard card.
 
-The schedule view is trimmed to shows available today and tomorrow in the configured timezone. Availability is shown one hour after the original Trakt airtime for Atlantic streaming delay.
+The schedule view shows the next 14 days by default in the configured timezone. Availability is shown one hour after the original Simkl airtime for Atlantic streaming delay.
 
 ## Security Notes
 
-- The `.env` file contains your Trakt client secret. Keep it private.
-- The `data/tokens.json` file contains Trakt OAuth tokens. Keep it private.
+- The `.env` file contains your Simkl client secret. Keep it private.
+- The `data/simkl-token.json` file contains the Simkl access token. Keep it private.
 - The calendar token is a bearer secret. Anyone with the URL can read the feed.
 - For local-only Home Assistant and iOS use, keep the service on your LAN.
 

@@ -1,5 +1,5 @@
 from trakt_ical_bridge.ics import build_calendar
-from trakt_ical_bridge.trakt import TraktClient
+from trakt_ical_bridge.simkl import SimklClient
 from trakt_ical_bridge.config import Settings
 from pathlib import Path
 
@@ -61,11 +61,10 @@ def test_special_tags_win_over_plain_calendar_items():
     assert "SUMMARY:Season Finale: Example Show - S02E08 - End" in ics
 
 
-def test_refresh_token_does_not_send_redirect_uri(tmp_path, monkeypatch):
+def test_simkl_pin_is_saved(tmp_path, monkeypatch):
     settings = Settings(
-        trakt_client_id="client",
-        trakt_client_secret="secret",
-        trakt_redirect_uri="http://lan-host:8765/auth/callback",
+        simkl_client_id="client",
+        simkl_client_secret="secret",
         public_base_url="http://lan-host:8765",
         calendar_token="calendar-token",
         data_dir=Path(tmp_path),
@@ -77,17 +76,29 @@ def test_refresh_token_does_not_send_redirect_uri(tmp_path, monkeypatch):
         include_finales=True,
         cache_seconds=60,
         public_schedule=True,
+        schedule_days=14,
     )
-    client = TraktClient(settings)
-    client._save_token({"refresh_token": "refresh", "access_token": "expired", "expires_in": 0})
-    captured = {}
+    client = SimklClient(settings)
+    monkeypatch.setattr(client, "_get_json", lambda *args, **kwargs: {"result": "OK", "access_token": "fresh"})
 
-    def fake_post_token(payload):
-        captured.update(payload)
-        return {"refresh_token": "next", "access_token": "fresh", "expires_in": 3600}
+    assert client.poll_pin("ABCDE")["access_token"] == "fresh"
+    assert client.authorized()
+    assert "fresh" in client.token_path.read_text(encoding="utf-8")
 
-    monkeypatch.setattr(client, "_post_token", fake_post_token)
 
-    assert client._access_token() == "fresh"
-    assert captured["grant_type"] == "refresh_token"
-    assert "redirect_uri" not in captured
+def test_simkl_calendar_normalizes_episode():
+    item = SimklClient._normalize(
+        {
+            "title": "Example Show",
+            "date": "2026-09-20T21:00:00-03:00",
+            "url": "https://simkl.com/tv/42/example-show",
+            "ids": {"simkl_id": 42, "slug": "example-show", "imdb": "tt42"},
+            "episode": {"season": 2, "episode": 3, "url": "https://simkl.com/tv/42/example-show/2/3"},
+        },
+        "tv",
+    )
+
+    assert item["show"]["title"] == "Example Show"
+    assert item["episode"]["season"] == 2
+    assert item["episode"]["number"] == 3
+    assert item["_provider_url"].endswith("/2/3")
