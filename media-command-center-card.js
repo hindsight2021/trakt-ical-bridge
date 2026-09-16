@@ -217,7 +217,7 @@
     try {
       const details = await this.nuvioFetch(`/details/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
       this._nuvioSearch.details = details;
-      this._nuvioSearch.season = details.seasons?.[0] ?? null;
+      this._nuvioSearch.season = details.seasons?.find(season => Number(season) > 0) ?? details.seasons?.[0] ?? null;
       this._nuvioSearch.episode = details.episodes?.find(item => item.season === this._nuvioSearch.season)?.episode ?? null;
       this._nuvioSearch.error = '';
     } catch (error) {
@@ -242,7 +242,7 @@
       <select class="nuvio-result" ${results ? '' : 'disabled'}><option value="">${results ? 'Select title' : 'Search results'}</option>${results}</select>
       <select class="nuvio-season" ${movie || !seasons ? 'disabled' : ''}><option value="">Season</option>${seasons}</select>
       <select class="nuvio-episode" ${movie || !episodes ? 'disabled' : ''}><option value="">Episode</option>${episodes}</select>
-      <button class="nuvio-play" data-action="nuvio-play" ${!n.selected || (!movie && (!n.season || !n.episode)) ? 'disabled' : ''}>▶ Play now</button>
+      <button class="nuvio-play" data-action="nuvio-play" ${!n.selected || (!movie && (n.season == null || n.episode == null)) ? 'disabled' : ''}>▶ Play now</button>
     </div>${n.error ? `<div class="search-error">${this.esc(n.error)}</div>` : ''}`;
   }
   playNuvioSelection() {
