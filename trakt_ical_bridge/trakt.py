@@ -78,7 +78,6 @@ class TraktClient:
             "refresh_token": token["refresh_token"],
             "client_id": self.settings.trakt_client_id,
             "client_secret": self.settings.trakt_client_secret,
-            "redirect_uri": self.settings.trakt_redirect_uri,
             "grant_type": "refresh_token",
         }
         refreshed = self._post_token(payload)

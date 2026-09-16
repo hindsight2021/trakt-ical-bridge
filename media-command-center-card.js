@@ -32,6 +32,7 @@
     this.schedule = [];
     this.error = '';
     this._scheduleLoaded = false;
+    this._themeMode = localStorage.getItem('media-command-theme') || 'auto';
     this.attachShadow({ mode: 'open' });
   }
 
@@ -73,6 +74,16 @@
   imdbLink(entity) {
     const id = this.attrAny(entity, ['imdb_id', 'imdb', 'media_imdb_id'], '');
     return /^tt\d+/i.test(String(id)) ? `https://www.imdb.com/title/${id}/` : '';
+  }
+  resolvedTheme() {
+    if (this._themeMode === 'day' || this._themeMode === 'night') return this._themeMode;
+    return this._hass?.states?.['sun.sun']?.state === 'below_horizon' ? 'night' : 'day';
+  }
+  cycleTheme() {
+    const modes = ['auto', 'day', 'night'];
+    this._themeMode = modes[(modes.indexOf(this._themeMode) + 1) % modes.length];
+    localStorage.setItem('media-command-theme', this._themeMode);
+    this.render();
   }
   nowData(source) {
     const sourceName = String(source).toLowerCase();
@@ -118,7 +129,7 @@
     } catch (e) {
       try {
         const start = new Date();
-        const end = new Date(start.getTime() + 48 * 60 * 60 * 1000);
+        const end = new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
         let result;
         try {
           result = await this._hass.callWS({
@@ -173,7 +184,7 @@
 
   renderSchedule() {
     if (this.error) return `<div class="empty">Schedule unavailable<br><small>${this.esc(this.error)}</small></div>`;
-    if (!this.schedule.length) return `<div class="empty">No shows today or tomorrow</div>`;
+    if (!this.schedule.length) return `<div class="empty">No upcoming shows in the next 14 days</div>`;
     return this.schedule.slice(0, 4).map(item => {
       const tag = item.tag || 'Episode';
       const cls = /finale/i.test(tag) ? 'finale' : (/premiere|new show/i.test(tag) ? 'premiere' : 'episode');
@@ -209,6 +220,8 @@
     const power = this.st(c.tv_power, '--');
     const art = this.nowArt(source);
     const bg = art ? `url(${art})` : 'linear-gradient(135deg,#151f2f,#07111f)';
+    const resolvedTheme = this.resolvedTheme();
+    const themeLabel = this._themeMode === 'auto' ? `AUTO ${resolvedTheme === 'night' ? '☾' : '☀'}` : this._themeMode.toUpperCase();
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -218,17 +231,19 @@
         .wash{position:absolute;inset:0;background-image:${bg};background-size:cover;background-position:center;opacity:.08;filter:blur(22px) saturate(.75);transform:scale(1.05);z-index:-2}.shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(247,247,241,.78),rgba(244,244,238,.58),rgba(237,237,231,.72));z-index:-1}
         .grid{height:100%;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(420px,.86fr);grid-template-rows:64px minmax(0,1fr) 100px 96px;grid-template-areas:"header header" "hero side" "search side" "metrics side";gap:14px;}
         header{grid-area:header;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:0}.brand span{display:block;color:#168d79;font-size:.67rem;font-weight:800;letter-spacing:.20em;text-transform:uppercase}.brand h1{margin:3px 0 0;color:#26332f;font-family:Georgia,serif;font-size:clamp(1.75rem,2.8vw,2.8rem);font-weight:500;line-height:.92;letter-spacing:-.025em}.status{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.pill{border:1px solid rgba(61,74,67,.18);background:rgba(255,255,250,.62);border-radius:999px;padding:8px 12px;font-size:.72rem;font-weight:750;color:#4b5852;box-shadow:inset 0 1px rgba(255,255,255,.75)}.pill.hot{background:#bf8d37;border-color:#bf8d37;color:#fff}
+        .theme-toggle{cursor:pointer;font:inherit}.theme-toggle:hover{transform:translateY(-1px)}
         .hero{grid-area:hero;position:relative;overflow:hidden;border:1px solid rgba(61,74,67,.14);border-radius:22px;background:rgba(255,255,250,.68);display:grid;grid-template-columns:minmax(190px,.32fr) minmax(0,1fr);gap:18px;padding:16px;min-height:0;box-shadow:0 12px 34px rgba(62,70,65,.10),inset 0 1px rgba(255,255,255,.88)}.poster{height:100%;min-height:0;border-radius:18px;background-image:${bg};background-size:cover;background-position:center;box-shadow:0 16px 34px rgba(48,55,51,.20);position:relative}.poster:after{content:'NOW PLAYING';position:absolute;left:12px;bottom:12px;padding:6px 9px;border-radius:999px;background:rgba(34,44,39,.76);color:#fff;font-size:.60rem;font-weight:850;letter-spacing:.13em}.now{display:flex;flex-direction:column;justify-content:space-between;min-width:0}.now h2{color:#26332f;font-family:Georgia,serif;font-size:clamp(2.1rem,4.2vw,4.8rem);font-weight:500;line-height:.94;margin:0;letter-spacing:-.025em}.now p{font-size:clamp(1rem,1.45vw,1.25rem);line-height:1.25;color:#69756f;margin:10px 0}.app{color:#168d79;text-transform:uppercase;font-weight:800;letter-spacing:.16em;font-size:.68rem}.transport{display:grid;grid-template-columns:repeat(6,56px);gap:9px;margin-top:12px}.btn{height:44px;border:1px solid rgba(61,74,67,.16);border-radius:15px;background:rgba(255,255,250,.76);color:#34433c;font-size:.72rem;font-weight:850;line-height:1;display:flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:0 4px 12px rgba(47,54,49,.08)}.btn.primary{background:#bf8d37;border-color:#bf8d37;color:#fff}.launch{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}.launch button{height:42px;border:0;border-radius:14px;padding:0 14px;background:#168d79;color:#fff;font-weight:850;cursor:pointer}.launch button:nth-child(2){background:#54706a}.launch button:nth-child(3){background:#8b6d9c}.launch button:nth-child(4){background:#737b76}
         .meta-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}.meta-chip{border:1px solid rgba(61,74,67,.15);background:rgba(255,255,250,.72);border-radius:999px;padding:5px 8px;color:#52605a;font-size:.70rem;font-weight:800}.synopsis{max-width:720px;color:#66726c;font-size:.88rem;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
         .side{grid-area:side;display:grid;grid-template-rows:minmax(0,1fr) 202px;gap:14px;min-height:0}.panel{border:1px solid rgba(61,74,67,.14);border-radius:22px;background:rgba(255,255,250,.68);backdrop-filter:blur(14px);padding:14px;min-height:0;box-shadow:0 10px 28px rgba(62,70,65,.09),inset 0 1px rgba(255,255,255,.88)}.panel h3{margin:0 0 10px;color:#34433c;font-family:Georgia,serif;font-size:1.05rem;font-weight:500;letter-spacing:0}.schedule{height:calc(100% - 30px);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:10px;overflow:hidden}.show{min-width:0;min-height:0;display:grid;grid-template-columns:58px minmax(0,1fr);gap:9px;padding:7px;border-radius:16px;background:rgba(244,244,238,.86);border:1px solid rgba(61,74,67,.12)}.show img,.poster-fallback{width:58px;height:100%;max-height:104px;object-fit:cover;border-radius:10px;background:#d8ddd6;display:grid;place-items:center;color:#537069;font-weight:850}.show-copy{min-width:0}.show span{display:inline-block;padding:2px 6px;border-radius:999px;background:#168d79;color:#fff;font-size:.52rem;font-weight:850;text-transform:uppercase}.show.finale span{background:#ad5b5b}.show.premiere span{background:#8b6d9c}.show b{display:block;margin-top:4px;color:#34433c;font-size:.76rem;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.show p{margin:2px 0;color:#6b7771;font-size:.60rem;line-height:1.12;height:1.28em;overflow:hidden}.show .desc{color:#78837d}.show em{font-style:normal;color:#a0742d;font-size:.60rem;font-weight:850}.show i{display:block;color:#4b5b54;font-style:normal;font-size:.58rem;font-weight:800}.empty{padding:24px;text-align:center;color:#748079;grid-column:1/3}.mini iframe{width:100%;height:100%;border:0;border-radius:16px;background:transparent}.mini{display:none}
         .remote{display:grid;grid-template-columns:repeat(3,64px);grid-auto-rows:42px;gap:8px;justify-content:center;align-content:center}.remote .blank{visibility:hidden}.remote .btn{width:64px;height:42px;padding:0 2px;border-radius:13px;font-size:.58rem;letter-spacing:0}.search-panel{grid-area:search}.search{display:grid;grid-template-columns:minmax(160px,1fr) 174px 96px 96px 96px;gap:10px;align-items:center}.search input,.search select{height:38px;min-width:0;border:1px solid rgba(61,74,67,.16);border-radius:14px;background:rgba(250,250,246,.82);color:#34433c;padding:0 12px;font-size:.95rem}.search button{height:38px;border:0;border-radius:14px;background:#bf8d37;color:#fff;font-weight:850;padding:0 14px}.metrics{grid-area:metrics;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;min-height:0}.metric{border:1px solid rgba(61,74,67,.14);border-radius:18px;background:rgba(255,255,250,.64);padding:12px;min-width:0;box-shadow:0 7px 20px rgba(62,70,65,.07)}.metric span{display:block;color:#168d79;text-transform:uppercase;font-size:.64rem;font-weight:800;letter-spacing:.14em}.metric b{display:block;margin-top:8px;color:#34433c;font-size:1.22rem;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        ha-card.theme-night{background:#0b121c;border-color:rgba(148,216,255,.22);color:#f3f6f5}.theme-night .shell{background:radial-gradient(circle at 72% 10%,rgba(209,154,65,.20),transparent 30%),radial-gradient(circle at 12% 88%,rgba(29,157,133,.20),transparent 34%),linear-gradient(135deg,#111a27,#182331 52%,#0c151f)}.theme-night .shade{background:linear-gradient(90deg,rgba(9,18,28,.72),rgba(14,24,35,.55),rgba(7,15,24,.72))}.theme-night .brand h1,.theme-night .now h2,.theme-night .panel h3,.theme-night .metric b,.theme-night .show b{color:#f3f6f5}.theme-night .now p,.theme-night .synopsis,.theme-night .show p,.theme-night .show .desc{color:#c3cec9}.theme-night .hero,.theme-night .panel,.theme-night .metric{background:rgba(24,36,48,.82);border-color:rgba(190,210,202,.15);box-shadow:0 14px 38px rgba(0,0,0,.26)}.theme-night .show{background:rgba(39,53,65,.82);border-color:rgba(190,210,202,.13)}.theme-night .pill,.theme-night .btn,.theme-night .search input,.theme-night .search select,.theme-night .meta-chip{background:rgba(42,55,66,.82);border-color:rgba(200,219,211,.18);color:#eef3f1}.theme-night .wash{opacity:.18;filter:blur(18px) saturate(1.05)}
         @media(max-width:1100px){.shell{min-height:calc(100dvh - 28px)}.grid{height:auto;grid-template-columns:1fr;grid-template-rows:64px minmax(330px,52vh) auto auto auto;grid-template-areas:"header" "hero" "search" "metrics" "side"}.side{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(250px,.6fr);grid-template-rows:minmax(270px,auto);margin-bottom:8px}.schedule{min-height:230px}.metrics{grid-template-columns:repeat(4,1fr)}.hero{grid-template-columns:minmax(180px,.32fr) minmax(0,1fr)}.now h2{font-size:clamp(1.8rem,6vw,3.9rem)}}
         @media(max-width:720px){.grid{grid-template-rows:64px minmax(360px,auto) auto auto auto}.poster{display:none}.hero{grid-template-columns:1fr}.search{grid-template-columns:1fr 1fr}.search .q{grid-column:1/3}.metrics{grid-template-columns:repeat(2,1fr)}.side{grid-template-columns:1fr;grid-template-rows:auto auto}.schedule{grid-template-columns:1fr;grid-template-rows:repeat(4,auto);height:auto}.empty{grid-column:1}.transport{grid-template-columns:repeat(3,56px)}}
       </style>
-      <ha-card><div class="shell"><div class="wash"></div><div class="shade"></div><div class="grid">
-        <header><div class="brand"><span>Media Central</span><h1>Theatre Command</h1></div><div class="status"><div class="pill hot">${this.esc(source).toUpperCase()}</div><div class="pill">TV ${this.esc(tvState)}</div><div class="pill">Kodi ${this.esc(kodiState)}</div></div></header>
+      <ha-card class="theme-${resolvedTheme}"><div class="shell"><div class="wash"></div><div class="shade"></div><div class="grid">
+        <header><div class="brand"><span>Media Central</span><h1>Theatre Command</h1></div><div class="status"><button class="pill theme-toggle" data-action="theme" title="Theme: ${this.esc(this._themeMode)}">${this.esc(themeLabel)}</button><div class="pill hot">${this.esc(source).toUpperCase()}</div><div class="pill">TV ${this.esc(tvState)}</div><div class="pill">Kodi ${this.esc(kodiState)}</div></div></header>
         <section class="hero"><div class="poster"></div><div class="now"><div><div class="app">${this.esc(appId)}</div><h2>${this.esc(title)}</h2><p>${this.esc(series)}</p><div class="meta-row">${now.rating ? `<span class="meta-chip">IMDb ${this.esc(now.rating)}</span>` : ''}${now.imdb ? `<a class="meta-chip" href="${this.esc(now.imdb)}" target="_blank" rel="noreferrer">IMDb</a>` : ''}<span class="meta-chip">${this.esc(source).toUpperCase()}</span></div>${now.description ? `<div class="synopsis">${this.esc(now.description)}</div>` : ''}</div><div><div class="transport"><button class="btn" data-cmd="MEDIA_REWIND">RW</button><button class="btn primary" data-service="play">PLAY</button><button class="btn" data-service="pause">PAUSE</button><button class="btn" data-service="stop">STOP</button><button class="btn" data-cmd="MEDIA_FAST_FORWARD">FF</button><button class="btn" data-cmd="BACK">BACK</button></div><div class="launch"><button data-action="stremio">Stremio</button><button data-action="kodi">Kodi</button><button data-action="movie">Movie Mode</button><button data-cmd="HOME">Home</button></div></div></div></section>
-        <aside class="side"><section class="panel"><h3>Today + Tomorrow</h3><div class="schedule">${this.renderSchedule()}</div></section><section class="panel"><h3>SHIELD Control</h3><div class="remote"><div class="blank"></div><button class="btn" data-cmd="DPAD_UP">UP</button><div class="blank"></div><button class="btn" data-cmd="DPAD_LEFT">LEFT</button><button class="btn primary" data-cmd="DPAD_CENTER">OK</button><button class="btn" data-cmd="DPAD_RIGHT">RIGHT</button><button class="btn" data-cmd="BACK">BACK</button><button class="btn" data-cmd="DPAD_DOWN">DOWN</button><button class="btn" data-cmd="HOME">HOME</button></div></section></aside>
+        <aside class="side"><section class="panel"><h3>Up Next • 14 Days</h3><div class="schedule">${this.renderSchedule()}</div></section><section class="panel"><h3>SHIELD Control</h3><div class="remote"><div class="blank"></div><button class="btn" data-cmd="DPAD_UP">UP</button><div class="blank"></div><button class="btn" data-cmd="DPAD_LEFT">LEFT</button><button class="btn primary" data-cmd="DPAD_CENTER">OK</button><button class="btn" data-cmd="DPAD_RIGHT">RIGHT</button><button class="btn" data-cmd="BACK">BACK</button><button class="btn" data-cmd="DPAD_DOWN">DOWN</button><button class="btn" data-cmd="HOME">HOME</button></div></section></aside>
         <section class="panel search-panel"><h3>Stremio Search</h3><div class="search"><input class="q" placeholder="Title" value="${this.esc(this.st(c.search_title,''))}"><select class="type">${this.renderTypeOptions()}</select><input class="season" type="number" min="0" value="${this.esc(this.st(c.search_season,'0'))}"><input class="episode" type="number" min="0" value="${this.esc(this.st(c.search_episode,'0'))}"><button data-action="search">Search</button></div></section>
         <section class="metrics"><div class="metric"><span>Receiver</span><b>${this.esc(receiverState)}</b></div><div class="metric"><span>TV Power</span><b>${this.esc(power)} W</b></div><div class="metric"><span>Mode</span><b>${this.esc(this.st(c.movie_mode,'off'))}</b></div><div class="metric"><span>Schedule</span><b>${this.schedule.length} shows</b></div></section>
       </div></div></ha-card>`;
@@ -247,6 +262,7 @@
       if (b.dataset.action === 'stremio') this.launchStremio();
       if (b.dataset.action === 'kodi') this.script(this.config.launch_kodi_script);
       if (b.dataset.action === 'movie') this.call('input_boolean','toggle',{}, { entity_id: this.config.movie_mode });
+      if (b.dataset.action === 'theme') this.cycleTheme();
       if (b.dataset.action === 'search') this.submitSearch();
     });
     const q = this.shadowRoot.querySelector('.q'); if (q) q.oninput = e => { clearTimeout(this._inputTimer); this._inputTimer = setTimeout(() => this.setText(this.config.search_title, e.target.value), 350); };
