@@ -116,7 +116,31 @@
       this.schedule = await r.json();
       this.error = '';
     } catch (e) {
-      this.error = e.message;
+      try {
+        const start = new Date();
+        const end = new Date(start.getTime() + 48 * 60 * 60 * 1000);
+        const result = await this._hass.callWS({
+          type: 'calendar/get_events',
+          entity_ids: [this.config.calendar],
+          start_time: start.toISOString(),
+          end_time: end.toISOString()
+        });
+        const bucket = result?.[this.config.calendar] || result?.response?.[this.config.calendar] || result;
+        const events = Array.isArray(bucket) ? bucket : (bucket?.events || []);
+        this.schedule = events.map(event => ({
+          tag: 'Calendar',
+          show: event.summary || event.message || event.title || 'Scheduled show',
+          episode: '',
+          description: event.description || event.location || '',
+          available_label: event.start?.dateTime
+            ? new Date(event.start.dateTime).toLocaleString([], { weekday:'short', hour:'numeric', minute:'2-digit' })
+            : (event.start?.date || '')
+        }));
+        this.error = '';
+      } catch (calendarError) {
+        this.schedule = [];
+        this.error = `Schedule service ${e.message}; calendar fallback ${calendarError.message}`;
+      }
     }
     if (this.isEditing()) return;
     this.render();
