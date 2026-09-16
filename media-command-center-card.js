@@ -119,12 +119,24 @@
       try {
         const start = new Date();
         const end = new Date(start.getTime() + 48 * 60 * 60 * 1000);
-        const result = await this._hass.callWS({
-          type: 'calendar/get_events',
-          entity_ids: [this.config.calendar],
-          start_time: start.toISOString(),
-          end_time: end.toISOString()
-        });
+        let result;
+        try {
+          result = await this._hass.callWS({
+            type: 'calendar/get_events',
+            entity_ids: [this.config.calendar],
+            start_time: start.toISOString(),
+            end_time: end.toISOString()
+          });
+        } catch (_unsupportedCommand) {
+          result = await this._hass.callService(
+            'calendar',
+            'get_events',
+            { start_date_time: start.toISOString(), end_date_time: end.toISOString() },
+            { entity_id: this.config.calendar },
+            true,
+            true
+          );
+        }
         const bucket = result?.[this.config.calendar] || result?.response?.[this.config.calendar] || result;
         const events = Array.isArray(bucket) ? bucket : (bucket?.events || []);
         this.schedule = events.map(event => ({
